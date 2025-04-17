@@ -25,6 +25,52 @@ const debugObjects: THREE.Mesh[] = [];
 let timeLeft = 180; // 3 minutos en segundos
 let timerInterval: number | null = null;
 
+// === Modo rendimiento ===
+let performanceMode = false;
+
+function applyPerformanceMode(enable: boolean) {
+    if (enable) {
+        renderer.setPixelRatio(1);
+        renderer.shadowMap.enabled = false;
+        mainLight.castShadow = false;
+        // Opcional: desactivar partículas visuales (solo ejemplo, puedes expandirlo)
+        // Puedes agregar más optimizaciones aquí
+    } else {
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        mainLight.castShadow = true;
+    }
+}
+
+// === Botón flotante de modo rendimiento ===
+const perfBtn = document.createElement('button');
+perfBtn.id = 'perf-toggle-btn';
+perfBtn.title = 'Alternar modo rendimiento';
+perfBtn.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`;
+perfBtn.style.position = 'fixed';
+perfBtn.style.top = '20px';
+perfBtn.style.right = '20px';
+perfBtn.style.zIndex = '2000';
+perfBtn.style.background = '#fff';
+perfBtn.style.border = '2px solid #888';
+perfBtn.style.borderRadius = '50%';
+perfBtn.style.width = '48px';
+perfBtn.style.height = '48px';
+perfBtn.style.display = 'flex';
+perfBtn.style.alignItems = 'center';
+perfBtn.style.justifyContent = 'center';
+perfBtn.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+perfBtn.style.cursor = 'pointer';
+perfBtn.style.transition = 'background 0.2s';
+perfBtn.onmouseenter = () => perfBtn.style.background = '#eee';
+perfBtn.onmouseleave = () => perfBtn.style.background = '#fff';
+perfBtn.onclick = () => {
+    performanceMode = !performanceMode;
+    applyPerformanceMode(performanceMode);
+    perfBtn.style.borderColor = performanceMode ? '#4CAF50' : '#888';
+};
+document.body.appendChild(perfBtn);
+
 // Función para actualizar la puntuación
 function updateScore() {
     const scoreElement = document.getElementById('score');
@@ -210,11 +256,13 @@ for (let i = 0; i < COLLECTION_SIZE; i++) {
     });
 }
 
+// Solo modelos GLB (sin PNG)
 const itemTypes = [
     { name: 'Manzana', modelPath: '/models/apple-cat-colored.glb', scale: 0.7 },
     { name: 'Piña', modelPath: '/models/pineapple-cat-colored.glb', scale: 0.7 },
     { name: 'Tomate', modelPath: '/models/tomato-cat-colored.glb', scale: 0.7 },
-    { name: 'Sandía', modelPath: '/models/watermelon-cat-colored.glb', scale: 0.7 }
+    { name: 'Sandía', modelPath: '/models/watermelon-cat-colored.glb', scale: 0.7 },
+    { name: 'Doro', modelPath: '/models/doro-flat.glb', scale: 0.7 }
 ];
 
 // Función para crear cuerpo físico con mejor colisión
@@ -350,116 +398,70 @@ loader.load('/models/bowl.glb', (gltf: any) => {
 
 async function createItem(type: typeof itemTypes[number], position?: {x: number, y: number, z: number}): Promise<{mesh: THREE.Object3D, body: any} | null> {
     try {
+        let model: THREE.Object3D;
         const gltf = await loader.loadAsync(type.modelPath);
-        const model = gltf.scene;
-
-        // Iniciar con escala 0 para la animación de aparición
-        model.scale.set(0, 0, 0);
-
+        model = gltf.scene;
+        model.scale.set(0, 0, 0); // Para animación de aparición
         if (position) {
-            // Usar posición predefinida si se proporciona
             model.position.set(position.x, position.y, position.z);
         } else {
-            // Posición aleatoria arriba del bowl
             const angle = Math.random() * Math.PI * 2;
             const radius = Math.random() * bowlRadius * 0.8;
             model.position.set(
                 Math.cos(angle) * radius,
-                5 + Math.random() * 2, // Altura inicial
+                5 + Math.random() * 2,
                 Math.sin(angle) * radius
             );
         }
-
         model.userData.type = type.name;
-
-        model.traverse((child) => {
+        model.traverse?.((child: any) => {
             if (child instanceof THREE.Mesh) {
                 child.castShadow = true;
                 child.receiveShadow = true;
             }
         });
-
         scene.add(model);
-
         // Animación de aparición con efecto "pop"
         const targetScale = type.scale;
-        const duration = 500; // ms
+        const duration = 500;
         const startTime = Date.now();
-
-        // Crear partículas para el efecto de aparición
         const particleCount = 15;
         const particles: THREE.Mesh[] = [];
-
         for (let i = 0; i < particleCount; i++) {
             const particleGeometry = new THREE.SphereGeometry(0.05, 8, 8);
-            const particleMaterial = new THREE.MeshBasicMaterial({
-                color: 0xffffff,
-                transparent: true,
-                opacity: 0.8
-            });
-
+            const particleMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
             const particle = new THREE.Mesh(particleGeometry, particleMaterial);
             particle.position.copy(model.position);
             scene.add(particle);
             particles.push(particle);
-
-            // Dirección aleatoria para la partícula
-            const direction = new THREE.Vector3(
-                (Math.random() - 0.5) * 2,
-                Math.random() * 2,
-                (Math.random() - 0.5) * 2
-            ).normalize();
-
-            // Guardar la dirección en userData
+            const direction = new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 2, (Math.random() - 0.5) * 2).normalize();
             particle.userData.direction = direction;
             particle.userData.speed = 0.05 + Math.random() * 0.1;
         }
-
-        // Función para animar la aparición
         function animateAppearance() {
             const currentTime = Date.now();
             const elapsed = currentTime - startTime;
             const progress = Math.min(elapsed / duration, 1);
-
-            // Función de ease-out elástica para el efecto rebote
-            const elasticOut = (t: number) => {
-                return Math.sin(-13.0 * (t + 1.0) * Math.PI / 2) * Math.pow(2.0, -10.0 * t) + 1.0;
-            };
-
-            // Aplicar escala con rebote
+            const elasticOut = (t: number) => Math.sin(-13.0 * (t + 1.0) * Math.PI / 2) * Math.pow(2.0, -10.0 * t) + 1.0;
             const scaleValue = elasticOut(progress) * targetScale;
             model.scale.set(scaleValue, scaleValue, scaleValue);
-
-            // Animar partículas
             particles.forEach(particle => {
                 const direction = particle.userData.direction as THREE.Vector3;
                 const speed = particle.userData.speed as number;
-
-                // Mover partícula
                 particle.position.add(direction.clone().multiplyScalar(speed));
-
-                // Reducir opacidad gradualmente
                 const material = particle.material as THREE.MeshBasicMaterial;
                 material.opacity = 0.8 * (1 - progress);
-
-                // Reducir tamaño gradualmente
                 particle.scale.setScalar(1 - progress * 0.8);
             });
-
             if (progress < 1) {
                 requestAnimationFrame(animateAppearance);
             } else {
-                // Eliminar partículas cuando termine la animación
                 particles.forEach(particle => scene.remove(particle));
             }
         }
-
-        // Iniciar animación
         animateAppearance();
-
-        // Crear cuerpo físico después de un pequeño retraso para que coincida con la animación
-        const body = createRigidBody(model, 1); // masa = 1
-
+        // Crear cuerpo físico
+        const body = createRigidBody(model, 1);
         return { mesh: model, body };
     } catch (error) {
         console.error(`Error cargando modelo ${type.name}:`, error);
@@ -874,7 +876,7 @@ function checkMatches() {
 
 // Optimizar la generación de frutas
 let fruitsLoaded = 0;
-const MAX_FRUITS = 8; // Reducir el máximo de frutas para mejor rendimiento
+const MAX_FRUITS = 16; // Aumenta la cantidad máxima de objetos
 const BATCH_DELAY = 1000; // Mayor delay entre frutas para evitar colisiones
 
 // Posiciones predefinidas para evitar colisiones
@@ -889,62 +891,51 @@ const predefinedPositions = [
     { x: 0.8, y: 8.5, z: -0.8 }
 ];
 
-// Función para añadir frutas gradualmente con mejor distribución
-async function addFruitBatch() {
-    if (fruitsLoaded >= MAX_FRUITS) return;
-
-    // Usar posiciones predefinidas para evitar colisiones inmediatas
-    const posIndex = fruitsLoaded % predefinedPositions.length;
-    const position = predefinedPositions[posIndex];
-
-    const type = itemTypes[Math.floor(Math.random() * itemTypes.length)];
-    const item = await createItem(type, position);
-
-    if (item) {
-        items.push(item);
-        fruitsLoaded++;
-
-        // Aplicar una pequeña fuerza aleatoria para que las frutas se muevan ligeramente
-        if (item.body) {
-            const force = new Ammo.btVector3(
-                (Math.random() - 0.5) * 0.5,
-                0,
-                (Math.random() - 0.5) * 0.5
-            );
-            item.body.applyCentralImpulse(force);
-        }
-    }
-
-    if (fruitsLoaded < MAX_FRUITS) {
-        setTimeout(addFruitBatch, BATCH_DELAY);
-    }
-}
-
-// Reemplazar createInitialFruits con la versión optimizada
+// Garantizar que siempre haya al menos 3 del mismo tipo para que el juego sea resoluble
 async function createInitialFruits() {
     fruitsLoaded = 0;
-    addFruitBatch();
+    // Añadir 3 de cada tipo para asegurar matches posibles
+    let initialTypes: typeof itemTypes[number][] = [];
+    itemTypes.forEach(type => {
+        for (let i = 0; i < 3; i++) initialTypes.push(type);
+    });
+    // Rellenar el resto con random
+    while (initialTypes.length < MAX_FRUITS) {
+        initialTypes.push(itemTypes[Math.floor(Math.random() * itemTypes.length)]);
+    }
+    // Mezclar el array
+    for (let i = initialTypes.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [initialTypes[i], initialTypes[j]] = [initialTypes[j], initialTypes[i]];
+    }
+    // Crear los objetos
+    for (let i = 0; i < MAX_FRUITS; i++) {
+        const posIndex = i % predefinedPositions.length;
+        const position = predefinedPositions[posIndex];
+        const type = initialTypes[i];
+        const item = await createItem(type, position);
+        if (item) {
+            items.push(item);
+            fruitsLoaded++;
+            if (item.body) {
+                const force = new Ammo.btVector3((Math.random() - 0.5) * 0.5, 0, (Math.random() - 0.5) * 0.5);
+                item.body.applyCentralImpulse(force);
+            }
+        }
+    }
 }
 
 // Modificar addRandomItem para respetar el límite
 async function addRandomItem() {
     if (items.length >= MAX_FRUITS) {
-        // Eliminar una fruta antigua si alcanzamos el límite
         const oldItem = items[0];
-        if (oldItem && oldItem.body) {
-            physicsWorld.removeRigidBody(oldItem.body);
-        }
-        if (oldItem && oldItem.mesh) {
-            scene.remove(oldItem.mesh);
-        }
+        if (oldItem && oldItem.body) physicsWorld.removeRigidBody(oldItem.body);
+        if (oldItem && oldItem.mesh) scene.remove(oldItem.mesh);
         items.shift();
     }
-
     const type = itemTypes[Math.floor(Math.random() * itemTypes.length)];
     const item = await createItem(type);
-    if (item) {
-        items.push(item);
-    }
+    if (item) items.push(item);
 }
 
 // Manejar clicks
@@ -1159,6 +1150,7 @@ async function init() {
         await initPhysics();
         createInitialFruits();
         startTimer(); // Iniciar el timer
+        applyPerformanceMode(performanceMode); // Aplica el modo rendimiento si está activo al iniciar
         animate();
     } catch (error) {
         console.error('Error during initialization:', error);
